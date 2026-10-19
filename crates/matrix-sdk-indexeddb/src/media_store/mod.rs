@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     },
     timer,
 };
-use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, time::SystemTime};
 use tracing::instrument;
 
 use crate::{
@@ -266,7 +266,32 @@ impl MediaStore for IndexeddbMediaStore {
     }
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
-        Ok(None)
+        self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readonly)?
+            .get_cache_size(IgnoreMediaRetentionPolicy::No)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[instrument(skip_all)]
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<Vec<(OwnedMxcUri, u64)>, Self::Error> {
+        let _timer = timer!("method");
+
+        let transaction =
+            self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readonly)?;
+        let mut sizes = Vec::with_capacity(uris.len());
+
+        for uri in uris {
+            let metadata = transaction.get_media_metadata_by_uri(uri).await?;
+            if !metadata.is_empty() {
+                let size: usize = metadata.iter().map(|media| media.content_size).sum();
+                sizes.push((uri.clone(), size as u64));
+            }
+        }
+
+        Ok(sizes)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
