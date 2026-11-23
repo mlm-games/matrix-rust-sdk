@@ -91,6 +91,24 @@ impl fmt::Debug for ThreadEventCache {
     }
 }
 
+/// The unread counts of a thread, as computed by the [`EventCache`].
+///
+/// [`EventCache`]: super::super::EventCache
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadUnreadCounts {
+    /// The ID of the thread root.
+    pub thread_id: OwnedEventId,
+
+    /// The number of unread messages.
+    pub unread_messages: u64,
+
+    /// The number of unread notifications, i.e. messages that should notify.
+    pub unread_notifications: u64,
+
+    /// The number of unread mentions, i.e. messages causing a highlight.
+    pub unread_mentions: u64,
+}
+
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
     #[allow(clippy::too_many_arguments)]

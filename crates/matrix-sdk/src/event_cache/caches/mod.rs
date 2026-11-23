@@ -225,6 +225,32 @@ impl Caches {
         )
     }
 
+    /// Get the unread counts of all the known threads.
+    ///
+    /// Only the threads that the [`EventCache`] knows about are returned, i.e.
+    /// the threads that have been seen or opened at least once. The counts are
+    /// sorted by thread ID.
+    ///
+    /// [`EventCache`]: super::EventCache
+    pub async fn thread_unread_counts(&self) -> Result<Vec<thread::ThreadUnreadCounts>> {
+        let threads = self.threads.read().await;
+
+        let mut counts = Vec::with_capacity(threads.len());
+        for cache in threads.values() {
+            let receipts = cache.read_receipts().await?;
+            counts.push(thread::ThreadUnreadCounts {
+                thread_id: cache.thread_id().to_owned(),
+                unread_messages: receipts.num_unread,
+                unread_notifications: receipts.num_notifications,
+                unread_mentions: receipts.num_mentions,
+            });
+        }
+
+        counts.sort_unstable_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        Ok(counts)
+    }
+
     /// Get or create a [`PinnedEventsCache`].
     ///
     /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
