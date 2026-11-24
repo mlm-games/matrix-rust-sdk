@@ -539,11 +539,12 @@ impl Room {
         self.client.clone()
     }
 
-    /// Get the unread counts of the threads of this room, as computed
-    /// client-side.
+    /// Get the unread counts of every thread known in this room.
     ///
-    /// Only the threads known by the event cache are returned, i.e. the
-    /// threads that have been seen or opened at least once.
+    /// Room-level counts such as [`Self::num_unread_messages`] ignore in-thread
+    /// activity when threading is enabled, and server-side notification counts
+    /// are not thread-aware. This complements them with the counts of each
+    /// thread the event cache knows about.
     pub async fn thread_unread_counts(&self) -> Result<Vec<ThreadUnreadCounts>> {
         Ok(self.client.event_cache().thread_unread_counts(self.room_id()).await?)
     }
