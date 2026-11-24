@@ -485,8 +485,12 @@ impl EventCache {
         Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
     }
 
-    /// Get the unread counts of the threads of a room, as known by the event
-    /// cache.
+    /// Get the unread counts of every thread known for a room.
+    ///
+    /// Unlike [`Self::thread`] followed by
+    /// [`ThreadEventCache::num_unread_messages`], this does not require opening
+    /// each thread first. Only threads the event cache knows about are
+    /// returned.
     pub(crate) async fn thread_unread_counts(
         &self,
         room_id: &RoomId,
@@ -865,7 +869,7 @@ mod tests {
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        event_id,
+        EventId, RoomId, event_id,
         events::{
             AnySyncEphemeralRoomEvent,
             receipt::{ReceiptThread, ReceiptType},
@@ -1231,13 +1235,12 @@ mod tests {
         event_cache.room(room_id_b).await.unwrap();
     }
 
-    #[async_test]
-    async fn test_thread_unread_counts() {
-        let room_id = room_id!("!crepe:saucisse.bzh");
-        let thread_root = event_id!("$thread_root");
-        let thread_event_0 = event_id!("$thread_event_0");
-        let thread_event_1 = event_id!("$thread_event_1");
-
+    async fn thread_unread_counts_client(
+        room_id: &RoomId,
+        thread_root: &EventId,
+        thread_event_0: &EventId,
+        thread_event_1: &EventId,
+    ) -> (crate::Client, EventFactory) {
         let client = MockClientBuilder::new(None)
             .on_builder(|builder| {
                 builder
@@ -1246,10 +1249,7 @@ mod tests {
             .build()
             .await;
 
-        let own_user_id = client.user_id().unwrap().to_owned();
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
+        let event_cache = client.event_cache().unwrap();
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
@@ -1278,17 +1278,48 @@ mod tests {
         );
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
+        (client, f)
+    }
+
+    #[async_test]
+    async fn test_thread_unread_counts_for_unopened_thread() {
+        let room_id = room_id!("!crepe:saucisse.bzh");
+        let thread_root = event_id!("$thread_root");
+        let thread_event_0 = event_id!("$thread_event_0");
+        let thread_event_1 = event_id!("$thread_event_1");
+
+        let (client, _) =
+            thread_unread_counts_client(room_id, thread_root, thread_event_0, thread_event_1).await;
+
+        // The sync created the thread in the event cache without opening it.
         let expected = vec![ThreadUnreadCounts {
             thread_id: thread_root.to_owned(),
             unread_messages: 2,
             unread_notifications: 2,
             unread_mentions: 0,
         }];
-        assert_eq!(event_cache.thread_unread_counts(room_id).await.unwrap(), expected);
+        assert_eq!(
+            client.event_cache().unwrap().thread_unread_counts(room_id).await.unwrap(),
+            expected
+        );
+        assert_eq!(
+            client.get_room(room_id).unwrap().thread_unread_counts().await.unwrap(),
+            expected
+        );
+    }
 
-        let room = client.get_room(room_id).unwrap();
-        assert_eq!(room.thread_unread_counts().await.unwrap(), expected);
+    #[async_test]
+    async fn test_thread_read_receipt_clears_unread_counts() {
+        let room_id = room_id!("!crepe:saucisse.bzh");
+        let thread_root = event_id!("$thread_root");
+        let thread_event_0 = event_id!("$thread_event_0");
+        let thread_event_1 = event_id!("$thread_event_1");
 
+        let (client, f) =
+            thread_unread_counts_client(room_id, thread_root, thread_event_0, thread_event_1).await;
+        let own_user_id = client.user_id().unwrap().to_owned();
+
+        // A receipt scoped to the thread must clear that thread's counts.
         let receipt = f
             .read_receipts()
             .add(
@@ -1305,13 +1336,17 @@ mod tests {
             room_id.to_owned(),
             JoinedRoomUpdate { ephemeral: vec![receipt], ..Default::default() },
         );
-        event_cache.inner.handle_room_updates(updates).await.unwrap();
+        client.event_cache().unwrap().inner.handle_room_updates(updates).await.unwrap();
 
-        let counts = event_cache.thread_unread_counts(room_id).await.unwrap();
-        assert_eq!(counts.len(), 1);
-        assert_eq!(counts[0].thread_id, thread_root);
-        assert_eq!(counts[0].unread_messages, 0);
-        assert_eq!(counts[0].unread_notifications, 0);
-        assert_eq!(counts[0].unread_mentions, 0);
+        let counts = client.event_cache().unwrap().thread_unread_counts(room_id).await.unwrap();
+        assert_eq!(
+            counts,
+            vec![ThreadUnreadCounts {
+                thread_id: thread_root.to_owned(),
+                unread_messages: 0,
+                unread_notifications: 0,
+                unread_mentions: 0,
+            }]
+        );
     }
 }

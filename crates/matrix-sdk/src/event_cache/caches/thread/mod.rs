@@ -92,12 +92,16 @@ impl fmt::Debug for ThreadEventCache {
     }
 }
 
-/// The unread counts of a thread, as computed by the [`EventCache`].
+/// The unread counts of one thread, as computed by the [`EventCache`].
+///
+/// [`ThreadEventCache::read_receipts`] already exposes these counts for a
+/// single thread; this type bundles them with the thread ID so callers can
+/// collect the counts of every thread known to the cache in one call.
 ///
 /// [`EventCache`]: super::super::EventCache
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThreadUnreadCounts {
-    /// The ID of the thread root.
+    /// The ID of the root event of the thread, not of a reply within it.
     pub thread_id: OwnedEventId,
 
     /// The number of unread messages.

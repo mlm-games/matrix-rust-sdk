@@ -241,13 +241,16 @@ impl Caches {
         )
     }
 
-    /// Get the unread counts of all the known threads.
+    /// Get the unread counts of every thread known for this room.
     ///
-    /// Only the threads that the [`EventCache`] knows about are returned, i.e.
-    /// the threads that have been seen or opened at least once. The counts are
-    /// sorted by thread ID.
+    /// Only threads the event cache has seen in a sync or opened at least once
+    /// are returned: there is no index of every thread on the server. The
+    /// counts come from each thread's [`ThreadEventCache::read_receipts`],
+    /// which is backed by client-side read receipts and therefore accounts for
+    /// reads made on other devices. Counts are sorted by thread ID so callers
+    /// get a stable order.
     ///
-    /// [`EventCache`]: super::EventCache
+    /// [`ThreadEventCache::read_receipts`]: thread::ThreadEventCache::read_receipts
     pub async fn thread_unread_counts(&self) -> Result<Vec<thread::ThreadUnreadCounts>> {
         let threads = self.threads.read().await;
 
