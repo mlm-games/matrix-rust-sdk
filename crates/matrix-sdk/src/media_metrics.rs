@@ -29,7 +29,6 @@ use crate::{Client, Error, Room, media::MediaEventContent};
 
 /// The type of a media item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
 pub enum MediaType {
     /// An image.
     Image,
@@ -42,6 +41,9 @@ pub enum MediaType {
 
     /// A generic file.
     File,
+
+    /// Any other media, such as a location preview.
+    Other,
 }
 
 /// The number of media events and the size of their cached representations.
@@ -62,8 +64,8 @@ pub struct MediaUsage {
 /// size of a media item is only counted once, even if it is referenced by
 /// several events.
 ///
-/// Location events are not media events and are ignored, even if they contain
-/// a thumbnail. Events that cannot be deserialized are also ignored.
+/// Location previews are counted as [`MediaType::Other`]. Events that cannot be
+/// deserialized are also ignored.
 ///
 /// If a media item is shared by events of different types, its size is counted
 /// once and attributed to one of those types.
@@ -173,6 +175,7 @@ fn media_of(event: &TimelineEvent) -> Option<(MediaType, Vec<OwnedMxcUri>)> {
                 MessageType::Video(content) => (MediaType::Video, content),
                 MessageType::Audio(content) => (MediaType::Audio, content),
                 MessageType::File(content) => (MediaType::File, content),
+                MessageType::Location(content) => (MediaType::Other, content),
                 _ => return None,
             };
 
@@ -213,11 +216,7 @@ fn media_uris(content: &dyn MediaEventContent) -> Vec<OwnedMxcUri> {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{
-        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::message::MessageType},
-        mxc_uri,
-        serde::Raw,
-    };
+    use ruma::{mxc_uri, serde::Raw};
     use serde_json::json;
 
     use super::{MediaType, media_of};
@@ -257,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn media_of_location_is_ignored() {
+    fn media_of_location_is_other() {
         let event = timeline_event(json!({
             "type": "m.room.message",
             "event_id": "$event",
@@ -273,18 +272,10 @@ mod tests {
             }
         }));
 
-        let deserialized = event.raw().deserialize().unwrap();
-        let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) =
-            deserialized
-        else {
-            panic!("expected a room message event");
-        };
-        assert!(matches!(
-            &message.as_original().unwrap().content.msgtype,
-            MessageType::Location(_)
-        ));
+        let (media_type, uris) = media_of(&event).unwrap();
 
-        assert!(media_of(&event).is_none());
+        assert_eq!(media_type, MediaType::Other);
+        assert_eq!(uris, vec![mxc_uri!("mxc://example.org/thumbnail").to_owned()]);
     }
 
     #[test]
